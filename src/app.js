@@ -4,6 +4,7 @@ const cookieParser= require('cookie-parser');
 const healthRoutes= require('./routes/health.routes');
 const authRoutes= require('./routes/auth.routes');
 const errorMiddleware= require('./middleware/error.middleware');
+const walletRoutes = require("./routes/wallet.routes");
 const app= express();
 
 app.use(cors());
@@ -12,6 +13,7 @@ app.use(cookieParser());
 
 app.use('/health', healthRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/wallet', walletRoutes);
 
 app.use(errorMiddleware);
 module.exports= app;
