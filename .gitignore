@@ -3,3 +3,8 @@ node_modules/
 npm-debug.log*
 .DS_Store
 coverage/
+
+.agents/
+.claude/
+.windsurf/
+skills-lock.json
