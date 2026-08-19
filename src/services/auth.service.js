@@ -4,7 +4,13 @@ const jwt = require("jsonwebtoken");
 const prisma = require("../config/prisma");
 const config = require("../config/env");
 
-async function register({ name, email, password }) {
+async function register({
+  name,
+  email,
+  password,
+  role,
+  businessName,
+}) {
   const existingUser = await prisma.user.findUnique({
     where: {
       email,
@@ -17,15 +23,24 @@ async function register({ name, email, password }) {
     throw error;
   }
 
+  if (role === "MERCHANT" && !businessName) {
+    const error = new Error(
+      "Business name is required for merchants"
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
   const passwordHash = await bcrypt.hash(password, 10);
 
   const result = await prisma.$transaction(async (tx) => {
-     // User and wallet must be created atomically.
+    // User, wallet, and merchant profile must be created atomically
     const user = await tx.user.create({
       data: {
         name,
         email,
         passwordHash,
+        role,
       },
     });
 
@@ -35,12 +50,28 @@ async function register({ name, email, password }) {
       },
     });
 
-    return { user, wallet };
+    let merchantProfile = null;
+    // Only merchants require merchant specific profile data
+    if (role === "MERCHANT") {
+      merchantProfile = await tx.merchantProfile.create({
+        data: {
+          userId: user.id,
+          businessName,
+        },
+      });
+    }
+
+    return {
+      user,
+      wallet,
+      merchantProfile,
+    };
   });
 
   const token = jwt.sign(
     {
       userId: result.user.id,
+      role: result.user.role,
     },
     config.jwtSecret,
     {
@@ -53,8 +84,12 @@ async function register({ name, email, password }) {
       id: result.user.id,
       name: result.user.name,
       email: result.user.email,
+      role: result.user.role,
     },
     walletId: result.wallet.id,
+    merchantProfileId: result.merchantProfile
+      ? result.merchantProfile.id
+      : null,
     token,
   };
 }
@@ -86,6 +121,7 @@ async function login({ email, password }) {
   const token = jwt.sign(
     {
       userId: user.id,
+      role: user.role,
     },
     config.jwtSecret,
     {
@@ -98,11 +134,11 @@ async function login({ email, password }) {
       id: user.id,
       name: user.name,
       email: user.email,
+      role: user.role,
     },
     token,
   };
 }
-
 
 module.exports = {
   register,

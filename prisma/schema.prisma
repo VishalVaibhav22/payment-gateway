@@ -6,14 +6,22 @@ datasource db {
   provider = "postgresql"
 }
 
+
+enum Role {
+  PAYER
+  MERCHANT
+}
+
 model User {
-  id           Int      @id @default(autoincrement())
-  email        String   @unique
-  name         String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  passwordHash String
-  wallet       Wallet?
+  id              Int              @id @default(autoincrement())
+  email           String           @unique
+  name            String
+  role            Role             @default(PAYER)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  passwordHash    String
+  wallet          Wallet?
+  merchantProfile MerchantProfile?
 }
 
 model Wallet {
@@ -22,5 +30,17 @@ model Wallet {
   balance   Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id])
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model MerchantProfile {
+  id            Int      @id @default(autoincrement())
+  userId        Int      @unique
+  businessName  String
+  webhookUrl    String?
+  webhookSecret String?
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
 }

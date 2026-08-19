@@ -3,12 +3,20 @@ const config = require("../config/env");
 
 async function register(req, res, next) {
   try {
-    const { name, email, password } = req.body;
+    const {
+      name,
+      email,
+      password,
+      role,
+      businessName,
+    } = req.body;
 
     const result = await authService.register({
       name,
       email,
       password,
+      role,
+      businessName,
     });
 
     res.cookie("token", result.token, {
@@ -22,6 +30,7 @@ async function register(req, res, next) {
       message: "User registered successfully",
       user: result.user,
       walletId: result.walletId,
+      merchantProfileId: result.merchantProfileId,
     });
   } catch (error) {
     next(error);
@@ -56,7 +65,6 @@ async function login(req, res, next) {
 function logout(req, res) {
   res.clearCookie("token", {
     httpOnly: true,
-    // HTTPS-only in production; localhost uses HTTP during development.
     secure: config.nodeEnv === "production",
     sameSite: "lax",
   });
