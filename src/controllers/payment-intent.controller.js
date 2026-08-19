@@ -33,7 +33,24 @@ async function getPaymentIntent(req, res, next) {
   }
 }
 
+async function processPaymentIntent(req, res, next) {
+  try {
+    const paymentIntent = await paymentIntentService.processPaymentIntent({
+      paymentIntentId: req.params.id,
+      userId: req.user.id,
+    });
+
+    return res.status(200).json({
+      message: "Payment intent processing started",
+      paymentIntent,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   createPaymentIntent,
   getPaymentIntent,
+  processPaymentIntent,
 };

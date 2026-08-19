@@ -23,4 +23,10 @@ router.get(
   paymentIntentController.getPaymentIntent,
 );
 
+router.post(
+  "/:id/process",
+  authMiddleware,
+  paymentIntentController.processPaymentIntent,
+);
+
 module.exports = router;
