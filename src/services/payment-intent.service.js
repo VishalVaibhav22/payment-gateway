@@ -63,8 +63,7 @@ async function getPaymentIntent({ paymentIntentId, userId }) {
 
 async function processPaymentIntent({ paymentIntentId, userId }) {
   const result = await prisma.$transaction(async (tx) => {
-    // Fetch the PaymentIntent inside the transaction so the
-    // state and ownership checks are part of the same operation
+    // Fetch the PaymentIntent inside the transaction
     const paymentIntent = await tx.paymentIntent.findUnique({
       where: {
         id: paymentIntentId,
@@ -77,7 +76,7 @@ async function processPaymentIntent({ paymentIntentId, userId }) {
       throw error;
     }
 
-    // Only the payer attached to this PaymentIntent can process it
+    // Only the attached payer can process the payment.
     if (paymentIntent.payerId !== userId) {
       const error = new Error(
         "Only the payer assigned to this payment intent can process it",
@@ -101,13 +100,7 @@ async function processPaymentIntent({ paymentIntentId, userId }) {
       },
     });
 
-    /*
-     * Lock the payer's wallet row
-     *
-     * Any other payment transaction trying to lock
-     * this same wallet must wait until this transaction
-     * commits or rolls back
-     */
+    // Lock the payer's wallet
     const walletRows = await tx.$queryRaw`
       SELECT *
       FROM "Wallet"
@@ -123,7 +116,7 @@ async function processPaymentIntent({ paymentIntentId, userId }) {
       throw error;
     }
 
-    // The balance is read AFTER acquiring the row lock
+    // Check sufficient balance
     if (payerWallet.balance < paymentIntent.amountPaise) {
       // PROCESSING → FAILED
       const failedStatus = transitionPaymentIntent(
@@ -146,7 +139,7 @@ async function processPaymentIntent({ paymentIntentId, userId }) {
       };
     }
 
-    // Merchant wallet does not need a balance check for a credit
+    // Find merchant wallet
     const merchantWallet = await tx.wallet.findUnique({
       where: {
         userId: paymentIntent.merchantId,
@@ -159,7 +152,7 @@ async function processPaymentIntent({ paymentIntentId, userId }) {
       throw error;
     }
 
-    // Debit payer
+    // Debit payer wallet
     await tx.wallet.update({
       where: {
         id: payerWallet.id,
@@ -171,7 +164,7 @@ async function processPaymentIntent({ paymentIntentId, userId }) {
       },
     });
 
-    // Credit merchant
+    // Credit merchant wallet
     await tx.wallet.update({
       where: {
         id: merchantWallet.id,
@@ -181,6 +174,34 @@ async function processPaymentIntent({ paymentIntentId, userId }) {
           increment: paymentIntent.amountPaise,
         },
       },
+    });
+
+    /*
+     * Create the two immutable ledger entries
+     *
+     * Payer:
+     *   DEBIT
+     *
+     * Merchant:
+     *   CREDIT
+     */
+    await tx.ledgerEntry.createMany({
+      data: [
+        {
+          paymentIntentId: paymentIntent.id,
+          walletId: payerWallet.id,
+          type: "DEBIT",
+          amountPaise: paymentIntent.amountPaise,
+          reason: "PAYMENT",
+        },
+        {
+          paymentIntentId: paymentIntent.id,
+          walletId: merchantWallet.id,
+          type: "CREDIT",
+          amountPaise: paymentIntent.amountPaise,
+          reason: "PAYMENT",
+        },
+      ],
     });
 
     // PROCESSING → CAPTURED

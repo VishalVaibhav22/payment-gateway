@@ -19,26 +19,32 @@ enum PaymentStatus {
   REFUNDED
 }
 
+enum LedgerType {
+  DEBIT
+  CREDIT
+}
+
 model User {
-  id                        Int              @id @default(autoincrement())
-  email                     String           @unique
-  name                      String
-  role                      Role             @default(PAYER)
-  createdAt                 DateTime         @default(now())
-  updatedAt                 DateTime         @updatedAt
-  passwordHash              String
-  wallet                    Wallet?
-  merchantProfile           MerchantProfile?
-  paymentIntentsAsMerchant  PaymentIntent[]  @relation("MerchantPaymentIntents")
-  paymentIntentsAsPayer     PaymentIntent[]  @relation("PayerPaymentIntents")
+  id                       Int              @id @default(autoincrement())
+  email                    String           @unique
+  name                     String
+  role                     Role             @default(PAYER)
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+  passwordHash             String
+  wallet                   Wallet?
+  merchantProfile          MerchantProfile?
+  paymentIntentsAsMerchant PaymentIntent[]  @relation("MerchantPaymentIntents")
+  paymentIntentsAsPayer    PaymentIntent[]  @relation("PayerPaymentIntents")
 }
 
 model Wallet {
-  id        Int      @id @default(autoincrement())
-  userId    Int      @unique
-  balance   Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            Int           @id @default(autoincrement())
+  userId        Int           @unique
+  balance       Int           @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  ledgerEntries LedgerEntry[]
 
   user User @relation(fields: [userId], references: [id])
 }
@@ -55,14 +61,31 @@ model MerchantProfile {
 }
 
 model PaymentIntent {
-  id          String        @id @default(uuid())
-  merchantId  Int
-  payerId     Int?
-  amountPaise Int
-  status      PaymentStatus @default(CREATED)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id            String        @id @default(uuid())
+  merchantId    Int
+  payerId       Int?
+  amountPaise   Int
+  status        PaymentStatus @default(CREATED)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  ledgerEntries LedgerEntry[]
 
   merchant User  @relation("MerchantPaymentIntents", fields: [merchantId], references: [id])
   payer    User? @relation("PayerPaymentIntents", fields: [payerId], references: [id])
+}
+
+model LedgerEntry {
+  id              Int        @id @default(autoincrement())
+  paymentIntentId String
+  walletId        Int
+  type            LedgerType
+  amountPaise     Int
+  reason          String
+  createdAt       DateTime   @default(now())
+
+  paymentIntent PaymentIntent @relation(fields: [paymentIntentId], references: [id])
+  wallet        Wallet        @relation(fields: [walletId], references: [id])
+
+  @@index([paymentIntentId])
+  @@index([walletId])
 }
