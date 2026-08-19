@@ -6,22 +6,31 @@ datasource db {
   provider = "postgresql"
 }
 
-
 enum Role {
   PAYER
   MERCHANT
 }
 
+enum PaymentStatus {
+  CREATED
+  PROCESSING
+  CAPTURED
+  FAILED
+  REFUNDED
+}
+
 model User {
-  id              Int              @id @default(autoincrement())
-  email           String           @unique
-  name            String
-  role            Role             @default(PAYER)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  passwordHash    String
-  wallet          Wallet?
-  merchantProfile MerchantProfile?
+  id                        Int              @id @default(autoincrement())
+  email                     String           @unique
+  name                      String
+  role                      Role             @default(PAYER)
+  createdAt                 DateTime         @default(now())
+  updatedAt                 DateTime         @updatedAt
+  passwordHash              String
+  wallet                    Wallet?
+  merchantProfile           MerchantProfile?
+  paymentIntentsAsMerchant  PaymentIntent[]  @relation("MerchantPaymentIntents")
+  paymentIntentsAsPayer     PaymentIntent[]  @relation("PayerPaymentIntents")
 }
 
 model Wallet {
@@ -43,4 +52,17 @@ model MerchantProfile {
   createdAt     DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])
+}
+
+model PaymentIntent {
+  id          String        @id @default(uuid())
+  merchantId  Int
+  payerId     Int?
+  amountPaise Int
+  status      PaymentStatus @default(CREATED)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  merchant User  @relation("MerchantPaymentIntents", fields: [merchantId], references: [id])
+  payer    User? @relation("PayerPaymentIntents", fields: [payerId], references: [id])
 }
