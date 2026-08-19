@@ -62,36 +62,37 @@ async function getPaymentIntent({ paymentIntentId, userId }) {
 }
 
 async function processPaymentIntent({ paymentIntentId, userId }) {
-  const paymentIntent = await prisma.paymentIntent.findUnique({
-    where: {
-      id: paymentIntentId,
-    },
-  });
-
-  if (!paymentIntent) {
-    const error = new Error("Payment intent not found");
-    error.statusCode = 404;
-    throw error;
-  }
-
-  // Only the attached payer can make the payment
-  if (paymentIntent.payerId !== userId) {
-    const error = new Error(
-      "Only the payer assigned to this payment intent can process it",
-    );
-    error.statusCode = 403;
-    throw error;
-  }
-
-// All financial changes happen inside ONE database transaction
   const result = await prisma.$transaction(async (tx) => {
+    // Fetch the PaymentIntent inside the transaction so the
+    // state and ownership checks are part of the same operation
+    const paymentIntent = await tx.paymentIntent.findUnique({
+      where: {
+        id: paymentIntentId,
+      },
+    });
+
+    if (!paymentIntent) {
+      const error = new Error("Payment intent not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    // Only the payer attached to this PaymentIntent can process it
+    if (paymentIntent.payerId !== userId) {
+      const error = new Error(
+        "Only the payer assigned to this payment intent can process it",
+      );
+      error.statusCode = 403;
+      throw error;
+    }
+
     // CREATED → PROCESSING
     const processingStatus = transitionPaymentIntent(
       paymentIntent.status,
       "PROCESSING",
     );
 
-    const processingIntent = await tx.paymentIntent.update({
+    await tx.paymentIntent.update({
       where: {
         id: paymentIntentId,
       },
@@ -100,12 +101,21 @@ async function processPaymentIntent({ paymentIntentId, userId }) {
       },
     });
 
-    // Find payer wallet.
-    const payerWallet = await tx.wallet.findUnique({
-      where: {
-        userId: paymentIntent.payerId,
-      },
-    });
+    /*
+     * Lock the payer's wallet row
+     *
+     * Any other payment transaction trying to lock
+     * this same wallet must wait until this transaction
+     * commits or rolls back
+     */
+    const walletRows = await tx.$queryRaw`
+      SELECT *
+      FROM "Wallet"
+      WHERE "userId" = ${paymentIntent.payerId}
+      FOR UPDATE
+    `;
+
+    const payerWallet = walletRows[0];
 
     if (!payerWallet) {
       const error = new Error("Payer wallet not found");
@@ -113,11 +123,11 @@ async function processPaymentIntent({ paymentIntentId, userId }) {
       throw error;
     }
 
-    // Check sufficient balance
+    // The balance is read AFTER acquiring the row lock
     if (payerWallet.balance < paymentIntent.amountPaise) {
       // PROCESSING → FAILED
       const failedStatus = transitionPaymentIntent(
-        processingIntent.status,
+        processingStatus,
         "FAILED",
       );
 
@@ -136,7 +146,7 @@ async function processPaymentIntent({ paymentIntentId, userId }) {
       };
     }
 
-    // Find merchant wallet
+    // Merchant wallet does not need a balance check for a credit
     const merchantWallet = await tx.wallet.findUnique({
       where: {
         userId: paymentIntent.merchantId,
@@ -175,7 +185,7 @@ async function processPaymentIntent({ paymentIntentId, userId }) {
 
     // PROCESSING → CAPTURED
     const capturedStatus = transitionPaymentIntent(
-      processingIntent.status,
+      processingStatus,
       "CAPTURED",
     );
 
