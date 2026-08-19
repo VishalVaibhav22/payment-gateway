@@ -35,13 +35,36 @@ async function getPaymentIntent(req, res, next) {
 
 async function processPaymentIntent(req, res, next) {
   try {
-    const paymentIntent = await paymentIntentService.processPaymentIntent({
+    const result = await paymentIntentService.processPaymentIntent({
       paymentIntentId: req.params.id,
       userId: req.user.id,
     });
 
+    if (!result.succeeded) {
+      return res.status(409).json({
+        message: "Payment failed",
+        paymentIntent: result.paymentIntent,
+      });
+    }
+
     return res.status(200).json({
-      message: "Payment intent processing started",
+      message: "Payment captured successfully",
+      paymentIntent: result.paymentIntent,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function attachPayer(req, res, next) {
+  try {
+    const paymentIntent = await paymentIntentService.attachPayer({
+      paymentIntentId: req.params.id,
+      payerId: req.user.id,
+    });
+
+    return res.status(200).json({
+      message: "Payer attached successfully",
       paymentIntent,
     });
   } catch (error) {
@@ -53,4 +76,5 @@ module.exports = {
   createPaymentIntent,
   getPaymentIntent,
   processPaymentIntent,
+  attachPayer,
 };

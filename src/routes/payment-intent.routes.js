@@ -26,7 +26,15 @@ router.get(
 router.post(
   "/:id/process",
   authMiddleware,
+  requireRole("PAYER"),
   paymentIntentController.processPaymentIntent,
+);
+
+router.post(
+  "/:id/attach-payer",
+  authMiddleware,
+  requireRole("PAYER"),
+  paymentIntentController.attachPayer,
 );
 
 module.exports = router;

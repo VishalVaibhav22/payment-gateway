@@ -62,22 +62,176 @@ async function getPaymentIntent({ paymentIntentId, userId }) {
 }
 
 async function processPaymentIntent({ paymentIntentId, userId }) {
-  const paymentIntent = await getPaymentIntent({
-    paymentIntentId,
-    userId,
+  const paymentIntent = await prisma.paymentIntent.findUnique({
+    where: {
+      id: paymentIntentId,
+    },
   });
 
-  const newStatus = transitionPaymentIntent(
-    paymentIntent.status,
-    "PROCESSING",
-  );
+  if (!paymentIntent) {
+    const error = new Error("Payment intent not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  // Only the attached payer can make the payment
+  if (paymentIntent.payerId !== userId) {
+    const error = new Error(
+      "Only the payer assigned to this payment intent can process it",
+    );
+    error.statusCode = 403;
+    throw error;
+  }
+
+// All financial changes happen inside ONE database transaction
+  const result = await prisma.$transaction(async (tx) => {
+    // CREATED → PROCESSING
+    const processingStatus = transitionPaymentIntent(
+      paymentIntent.status,
+      "PROCESSING",
+    );
+
+    const processingIntent = await tx.paymentIntent.update({
+      where: {
+        id: paymentIntentId,
+      },
+      data: {
+        status: processingStatus,
+      },
+    });
+
+    // Find payer wallet.
+    const payerWallet = await tx.wallet.findUnique({
+      where: {
+        userId: paymentIntent.payerId,
+      },
+    });
+
+    if (!payerWallet) {
+      const error = new Error("Payer wallet not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    // Check sufficient balance
+    if (payerWallet.balance < paymentIntent.amountPaise) {
+      // PROCESSING → FAILED
+      const failedStatus = transitionPaymentIntent(
+        processingIntent.status,
+        "FAILED",
+      );
+
+      const failedIntent = await tx.paymentIntent.update({
+        where: {
+          id: paymentIntentId,
+        },
+        data: {
+          status: failedStatus,
+        },
+      });
+
+      return {
+        paymentIntent: failedIntent,
+        succeeded: false,
+      };
+    }
+
+    // Find merchant wallet
+    const merchantWallet = await tx.wallet.findUnique({
+      where: {
+        userId: paymentIntent.merchantId,
+      },
+    });
+
+    if (!merchantWallet) {
+      const error = new Error("Merchant wallet not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    // Debit payer
+    await tx.wallet.update({
+      where: {
+        id: payerWallet.id,
+      },
+      data: {
+        balance: {
+          decrement: paymentIntent.amountPaise,
+        },
+      },
+    });
+
+    // Credit merchant
+    await tx.wallet.update({
+      where: {
+        id: merchantWallet.id,
+      },
+      data: {
+        balance: {
+          increment: paymentIntent.amountPaise,
+        },
+      },
+    });
+
+    // PROCESSING → CAPTURED
+    const capturedStatus = transitionPaymentIntent(
+      processingIntent.status,
+      "CAPTURED",
+    );
+
+    const capturedIntent = await tx.paymentIntent.update({
+      where: {
+        id: paymentIntentId,
+      },
+      data: {
+        status: capturedStatus,
+      },
+    });
+
+    return {
+      paymentIntent: capturedIntent,
+      succeeded: true,
+    };
+  });
+
+  return result;
+}
+
+async function attachPayer({ paymentIntentId, payerId }) {
+  const paymentIntent = await prisma.paymentIntent.findUnique({
+    where: {
+      id: paymentIntentId,
+    },
+  });
+
+  if (!paymentIntent) {
+    const error = new Error("Payment intent not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (paymentIntent.payerId && paymentIntent.payerId !== payerId) {
+    const error = new Error(
+      "Payment intent is already associated with another payer",
+    );
+    error.statusCode = 409;
+    throw error;
+  }
+
+  if (paymentIntent.status !== "CREATED") {
+    const error = new Error(
+      "Payer can only be attached while payment intent is in CREATED state",
+    );
+    error.statusCode = 409;
+    throw error;
+  }
 
   const updatedPaymentIntent = await prisma.paymentIntent.update({
     where: {
       id: paymentIntentId,
     },
     data: {
-      status: newStatus,
+      payerId,
     },
   });
 
@@ -88,4 +242,5 @@ module.exports = {
   createPaymentIntent,
   getPaymentIntent,
   processPaymentIntent,
+  attachPayer,
 };
