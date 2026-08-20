@@ -20,6 +20,8 @@ const allowedTransitions = {
   REFUNDED: [],
 };
 
+const { addPaymentCapturedJob } = require("../queues/payment-event.queue");
+
 function transitionPaymentIntent(currentStatus, newStatus) {
   const allowedNextStates = allowedTransitions[currentStatus] || [];
 
@@ -430,6 +432,16 @@ async function processPaymentIntent({
         responseBody,
       };
     });
+
+    if (
+      result.responseStatus === 200 &&
+      result.responseBody?.paymentIntent?.status === "CAPTURED"
+    ) {
+      await addPaymentCapturedJob({
+        paymentIntentId: result.responseBody.paymentIntent.id,
+        merchantId: result.responseBody.paymentIntent.merchantId,
+      });
+    }
 
     // Cache the completed result in Redis
     await setIdempotencyCompleted(
