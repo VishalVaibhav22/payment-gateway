@@ -87,19 +87,10 @@ const paymentWorker = new Worker(
     });
 
     if (!response.ok) {
-      await prisma.webhookEvent.update({
-        where: {
-          id: webhookEvent.id,
-        },
-        data: {
-          status: "FAILED",
-        },
-      });
-
-      throw new Error(
-        `Webhook delivery failed with status ${response.status}`,
-      );
-    }
+  throw new Error(
+    `Webhook delivery failed with status ${response.status}`,
+  );
+}
 
     await prisma.webhookEvent.update({
       where: {
@@ -124,8 +115,23 @@ paymentWorker.on("completed", (job) => {
   console.log(`Job ${job.id} completed`);
 });
 
-paymentWorker.on("failed", (job, error) => {
+paymentWorker.on("failed", async (job, error) => {
   console.error(`Job ${job?.id} failed`, error);
+
+  if (!job) {
+    return;
+  }
+
+  if (job.attemptsMade >= job.opts.attempts) {
+    await prisma.webhookEvent.update({
+      where: {
+        id: job.data.webhookEventId,
+      },
+      data: {
+        status: "FAILED",
+      },
+    });
+  }
 });
 
 module.exports = paymentWorker;
