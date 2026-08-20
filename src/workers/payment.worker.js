@@ -2,6 +2,7 @@ const { Worker } = require("bullmq");
 
 const prisma = require("../config/prisma");
 const config = require("../config/env");
+const { generateWebhookSignature } = require("../utils/webhook-signature");
 
 const connection = {
   url: config.redisUrl,
@@ -53,6 +54,10 @@ const paymentWorker = new Worker(
       throw new Error("Merchant webhook URL not configured");
     }
 
+    if (!merchantProfile.webhookSecret) {
+      throw new Error("Merchant webhook secret not configured");
+    }
+
     await prisma.webhookEvent.update({
       where: {
         id: webhookEvent.id,
@@ -65,12 +70,20 @@ const paymentWorker = new Worker(
       },
     });
 
+    const payload = JSON.stringify(webhookEvent.payload);
+
+    const signature = generateWebhookSignature(
+      payload,
+      merchantProfile.webhookSecret,
+    );
+
     const response = await fetch(merchantProfile.webhookUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "X-Webhook-Signature": signature,
       },
-      body: JSON.stringify(webhookEvent.payload),
+      body: payload,
     });
 
     if (!response.ok) {
