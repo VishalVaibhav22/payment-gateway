@@ -9,7 +9,7 @@ const paymentWorker = new Worker(
   "payment-events",
   async (job) => {
     console.log("Processing job:", job.name);
-    console.log("Job data:", job.data);
+    console.log("Webhook event ID:", job.data.webhookEventId);
 
     return {
       processed: true,

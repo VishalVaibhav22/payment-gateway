@@ -29,6 +29,12 @@ enum IdempotencyStatus {
   COMPLETED
 }
 
+enum WebhookStatus {
+  PENDING
+  DELIVERED
+  FAILED
+}
+
 model User {
   id                       Int              @id @default(autoincrement())
   email                    String           @unique
@@ -75,6 +81,7 @@ model PaymentIntent {
   updatedAt       DateTime         @updatedAt
   ledgerEntries   LedgerEntry[]
   idempotencyKeys IdempotencyKey[]
+  webhookEvents   WebhookEvent[]
 
   merchant User  @relation("MerchantPaymentIntents", fields: [merchantId], references: [id])
   payer    User? @relation("PayerPaymentIntents", fields: [payerId], references: [id])
@@ -110,4 +117,20 @@ model IdempotencyKey {
   paymentIntent PaymentIntent @relation(fields: [paymentIntentId], references: [id])
 
   @@index([paymentIntentId])
+}
+
+model WebhookEvent {
+  id              Int           @id @default(autoincrement())
+  paymentIntentId String
+  type            String
+  payload         Json
+  status          WebhookStatus @default(PENDING)
+  attempts        Int           @default(0)
+  lastAttemptAt   DateTime?
+  createdAt       DateTime      @default(now())
+
+  paymentIntent PaymentIntent @relation(fields: [paymentIntentId], references: [id])
+
+  @@index([paymentIntentId])
+  @@index([status])
 }

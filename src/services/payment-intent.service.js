@@ -12,6 +12,8 @@ const {
   deleteIdempotencyKey,
 } = require("./redis-idempotency.service");
 
+const { addWebhookDeliveryJob } = require("../queues/webhook.queue");
+
 const allowedTransitions = {
   CREATED: ["PROCESSING"],
   PROCESSING: ["CAPTURED", "FAILED"],
@@ -19,8 +21,6 @@ const allowedTransitions = {
   FAILED: [],
   REFUNDED: [],
 };
-
-const { addPaymentCapturedJob } = require("../queues/payment-event.queue");
 
 function transitionPaymentIntent(currentStatus, newStatus) {
   const allowedNextStates = allowedTransitions[currentStatus] || [];
@@ -162,7 +162,8 @@ async function processPaymentIntent({
   );
 
   if (!lockAcquired) {
-    const existingRedisResult = await getIdempotencyResult(idempotencyKey);
+    const existingRedisResult =
+      await getIdempotencyResult(idempotencyKey);
 
     if (!existingRedisResult) {
       const error = new Error("Unable to acquire idempotency lock");
@@ -392,6 +393,19 @@ async function processPaymentIntent({
         ],
       });
 
+      // Create the durable webhook event
+      const webhookEvent = await tx.webhookEvent.create({
+        data: {
+          paymentIntentId: paymentIntent.id,
+          type: "payment.captured",
+          payload: {
+            paymentIntentId: paymentIntent.id,
+            amountPaise: paymentIntent.amountPaise,
+            status: "CAPTURED",
+          },
+        },
+      });
+
       // PROCESSING → CAPTURED
       const capturedStatus = transitionPaymentIntent(
         processingStatus,
@@ -430,16 +444,14 @@ async function processPaymentIntent({
         idempotentReplay: false,
         responseStatus,
         responseBody,
+        webhookEventId: webhookEvent.id,
       };
     });
 
-    if (
-      result.responseStatus === 200 &&
-      result.responseBody?.paymentIntent?.status === "CAPTURED"
-    ) {
-      await addPaymentCapturedJob({
-        paymentIntentId: result.responseBody.paymentIntent.id,
-        merchantId: result.responseBody.paymentIntent.merchantId,
+    // Add the webhook job only after the database transaction commits
+    if (result.webhookEventId) {
+      await addWebhookDeliveryJob({
+        webhookEventId: result.webhookEventId,
       });
     }
 
