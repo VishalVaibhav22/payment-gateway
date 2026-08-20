@@ -24,6 +24,11 @@ enum LedgerType {
   CREDIT
 }
 
+enum IdempotencyStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
 model User {
   id                       Int              @id @default(autoincrement())
   email                    String           @unique
@@ -61,14 +66,15 @@ model MerchantProfile {
 }
 
 model PaymentIntent {
-  id            String        @id @default(uuid())
-  merchantId    Int
-  payerId       Int?
-  amountPaise   Int
-  status        PaymentStatus @default(CREATED)
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  ledgerEntries LedgerEntry[]
+  id              String           @id @default(uuid())
+  merchantId      Int
+  payerId         Int?
+  amountPaise     Int
+  status          PaymentStatus    @default(CREATED)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  ledgerEntries   LedgerEntry[]
+  idempotencyKeys IdempotencyKey[]
 
   merchant User  @relation("MerchantPaymentIntents", fields: [merchantId], references: [id])
   payer    User? @relation("PayerPaymentIntents", fields: [payerId], references: [id])
@@ -88,4 +94,20 @@ model LedgerEntry {
 
   @@index([paymentIntentId])
   @@index([walletId])
+}
+
+model IdempotencyKey {
+  id              Int              @id @default(autoincrement())
+  key             String           @unique
+  requestHash     String
+  paymentIntentId String
+  status          IdempotencyStatus @default(IN_PROGRESS)
+  responseBody    String?
+  responseStatus  Int?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  paymentIntent PaymentIntent @relation(fields: [paymentIntentId], references: [id])
+
+  @@index([paymentIntentId])
 }

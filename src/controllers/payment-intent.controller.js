@@ -35,22 +35,21 @@ async function getPaymentIntent(req, res, next) {
 
 async function processPaymentIntent(req, res, next) {
   try {
+    const idempotencyKey = req.get("Idempotency-Key");
+
+    if (!idempotencyKey) {
+      const error = new Error("Idempotency-Key header is required");
+      error.statusCode = 400;
+      throw error;
+    }
+
     const result = await paymentIntentService.processPaymentIntent({
       paymentIntentId: req.params.id,
       userId: req.user.id,
+      idempotencyKey,
     });
 
-    if (!result.succeeded) {
-      return res.status(409).json({
-        message: "Payment failed",
-        paymentIntent: result.paymentIntent,
-      });
-    }
-
-    return res.status(200).json({
-      message: "Payment captured successfully",
-      paymentIntent: result.paymentIntent,
-    });
+    return res.status(result.responseStatus).json(result.responseBody);
   } catch (error) {
     next(error);
   }
