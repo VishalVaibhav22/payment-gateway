@@ -14,6 +14,10 @@ const {
 
 const { addWebhookDeliveryJob } = require("../queues/webhook.queue");
 
+const {
+  emitPaymentUpdate,
+} = require("./socket.service");
+
 const allowedTransitions = {
   CREATED: ["PROCESSING"],
   PROCESSING: ["CAPTURED", "FAILED"],
@@ -452,6 +456,17 @@ async function processPaymentIntent({
     if (result.webhookEventId) {
       await addWebhookDeliveryJob({
         webhookEventId: result.webhookEventId,
+      });
+    }
+
+    // Emit the payment update only after the database transaction commits
+    if (
+      result.responseStatus === 200 &&
+      result.responseBody?.paymentIntent?.status === "CAPTURED"
+    ) {
+      emitPaymentUpdate({
+        paymentIntentId: result.responseBody.paymentIntent.id,
+        status: result.responseBody.paymentIntent.status,
       });
     }
 
