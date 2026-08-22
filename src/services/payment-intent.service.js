@@ -14,9 +14,7 @@ const {
 
 const { addWebhookDeliveryJob } = require("../queues/webhook.queue");
 
-const {
-  emitPaymentUpdate,
-} = require("./socket.service");
+const { emitPaymentUpdate } = require("./socket.service");
 
 const allowedTransitions = {
   CREATED: ["PROCESSING"],
@@ -166,8 +164,7 @@ async function processPaymentIntent({
   );
 
   if (!lockAcquired) {
-    const existingRedisResult =
-      await getIdempotencyResult(idempotencyKey);
+    const existingRedisResult = await getIdempotencyResult(idempotencyKey);
 
     if (!existingRedisResult) {
       const error = new Error("Unable to acquire idempotency lock");
@@ -337,6 +334,10 @@ async function processPaymentIntent({
           idempotentReplay: false,
           responseStatus,
           responseBody,
+          socketUpdate: {
+            paymentIntentId: failedIntent.id,
+            status: "FAILED",
+          },
         };
       }
 
@@ -449,6 +450,10 @@ async function processPaymentIntent({
         responseStatus,
         responseBody,
         webhookEventId: webhookEvent.id,
+        socketUpdate: {
+          paymentIntentId: capturedIntent.id,
+          status: "CAPTURED",
+        },
       };
     });
 
@@ -460,14 +465,8 @@ async function processPaymentIntent({
     }
 
     // Emit the payment update only after the database transaction commits
-    if (
-      result.responseStatus === 200 &&
-      result.responseBody?.paymentIntent?.status === "CAPTURED"
-    ) {
-      emitPaymentUpdate({
-        paymentIntentId: result.responseBody.paymentIntent.id,
-        status: result.responseBody.paymentIntent.status,
-      });
+    if (result.socketUpdate) {
+      emitPaymentUpdate(result.socketUpdate);
     }
 
     // Cache the completed result in Redis
